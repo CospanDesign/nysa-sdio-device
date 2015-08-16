@@ -40,13 +40,13 @@ module sdio_cia #(
   parameter                 BUFFER_DEPTH  = 8,
   parameter                 EN_8BIT_BUS   = 1'b0
 )(
-  input                     sdio_clk,
+  input                     clk,    // SDIO PHY Clock
   input                     rst,
 
   input                     i_activate,
   input                     i_ready,
-  output  reg               o_ready,
-  output  reg               o_finished,
+  output                    o_ready,
+  output                    o_finished,
   input                     i_write_flag,
   input                     i_inc_addr,
   input         [17:0]      i_address,
@@ -54,9 +54,56 @@ module sdio_cia #(
   input         [17:0]      i_data_count,
   input         [7:0]       i_data_in,
   output        [7:0]       o_data_out,
-  output  reg               o_data_stb,  //If reading, this strobes a new piece of data in, if writing strobes data out
+  output                    o_data_stb,  //If reading, this strobes a new piece of data in, if writing strobes data out
 
-  //Function Interface
+  //FBR Interface
+  output        [7:0]       o_fbr_select,
+  output                    o_fbr_activate,
+  output                    o_fbr_ready,
+  output                    o_fbr_write_flag,
+  output                    o_fbr_addr_in,
+  output        [17:0]      o_fbr_address,
+  output                    o_fbr_data_stb,
+  output        [17:0]      o_fbr_data_count,
+  output        [7:0]       o_fbr_data_in,
+
+  input                     i_fbr1_finished,
+  input                     i_fbr1_ready,
+  input         [7:0]       i_fbr1_data_out,
+  input                     i_fbr1_data_stb,
+
+  input                     i_fbr2_finished,
+  input                     i_fbr2_ready,
+  input         [7:0]       i_fbr2_data_out,
+  input                     i_fbr2_data_stb,
+
+  input                     i_fbr3_finished,
+  input                     i_fbr3_ready,
+  input         [7:0]       i_fbr3_data_out,
+  input                     i_fbr3_data_stb,
+
+  input                     i_fbr4_finished,
+  input                     i_fbr4_ready,
+  input         [7:0]       i_fbr4_data_out,
+  input                     i_fbr4_data_stb,
+
+  input                     i_fbr5_finished,
+  input                     i_fbr5_ready,
+  input         [7:0]       i_fbr5_data_out,
+  input                     i_fbr5_data_stb,
+
+  input                     i_fbr6_finished,
+  input                     i_fbr6_ready,
+  input         [7:0]       i_fbr6_data_out,
+  input                     i_fbr6_data_stb,
+
+  input                     i_fbr7_finished,
+  input                     i_fbr7_ready,
+  input         [7:0]       i_fbr7_data_out,
+  input                     i_fbr7_data_stb,
+
+
+  //Function Configuration Interface
   output  reg   [7:0]       o_func_enable,
   input         [7:0]       i_func_ready,
   output  reg   [7:0]       o_func_int_enable,
@@ -89,237 +136,186 @@ module sdio_cia #(
   output                    o_driver_type_d,
   output  reg               o_enable_async_interrupt
 );
-//local parameters
-localparam     IDLE         = 4'h0;
-localparam     READ         = 4'h1;
-localparam     WRITE        = 4'h2;
 
-//registes/wires
-reg             [17:0]      data_count;
-reg             [1:0]       driver_type;
-reg             [3:0]       state;
+//Local Parameters
 
-wire            [7:0]       cia_map [0:22];
-
-output  reg     [1:0]       bus_width;
-reg             [2:0]       bus_speed_select;
-reg             [2:0]       abort_sel;
-wire            [17:0]      reg_addr;
-wire            [17:0]      main_cis_addr;
-
+//Local Registers/Wires
+wire                            cia_i_activate[0:`NO_SELECT_INDEX + 1];
+wire                            cia_o_ready   [0:`NO_SELECT_INDEX + 1];
+wire                            cia_o_finished[0:`NO_SELECT_INDEX + 1];
+wire            [7:0]           cia_o_data_out[0:`NO_SELECT_INDEX + 1];
+wire            [7:0]           cia_o_data_stb[0:`NO_SELECT_INDEX + 1];
+reg             [3:0]           func_sel;
 
 //submodules
+sdio_cccr #(
+  .BUFFER_DEPTH                 (BUFFER_DEPTH                 ),
+  .EN_8BIT_BUS                  (EN_8BIT_BUS                  )
+) cccr (
+  .clk                          (clk                          ),
+  .rst                          (rst                          ),
+
+  .i_activate                   (cia_i_activate[`CCCR_INDEX]  ),
+  .i_ready                      (i_ready                      ),
+  .o_ready                      (cia_o_ready[`CCCR_INDEX]     ),
+  .o_finished                   (cia_o_finished[`CCCR_INDEX]  ),
+  .i_write_flag                 (i_write_flag                 ),
+  .i_inc_addr                   (i_inc_addr                   ),
+  .i_address                    (i_address                    ),
+  .i_data_stb                   (i_data_stb                   ),
+  .i_data_count                 (i_data_count                 ),
+  .i_data_in                    (i_data_in                    ),
+  .o_data_out                   (cia_o_data_out[`CCCR_INDEX]  ),
+  .o_data_stb                   (cia_o_data_stb[`CCCR_INDEX]  ),
+
+  .o_func_enable                (o_func_enable                ),
+  .i_func_ready                 (i_func_ready                 ),
+  .o_func_int_enable            (o_func_int_enable            ),
+  .i_func_int_pending           (i_func_int_pending           ),
+  .o_soft_reset                 (o_soft_reset                 ),
+  .o_func_abort_stb             (o_func_abort_stb             ),
+  .o_en_card_detect_n           (o_en_card_detect_n           ),
+  .o_en_4bit_block_int          (o_en_4bit_block_int          ),
+  .i_func_active                (i_func_active                ),
+  .o_bus_release_req_stb        (o_bus_release_req_stb        ),
+  .o_func_select                (o_func_select                ),
+  .i_data_txrx_in_progress_flag (i_data_txrx_in_progress_flag ),
+  .i_func_exec_status           (i_func_exec_status           ),
+  .i_func_ready_for_data        (i_func_ready_for_data        ),
+  .o_max_f0_block_size          (o_max_f0_block_size          ),
+
+  .o_1_bit_mode                 (o_1_bit_mode                 ),
+  .o_4_bit_mode                 (o_4_bit_mode                 ),
+  .o_8_bit_mode                 (o_8_bit_mode                 ),
+
+  .o_sdr_12                     (o_sdr_12                     ),
+  .o_sdr_25                     (o_sdr_25                     ),
+  .o_sdr_50                     (o_sdr_50                     ),
+  .o_ddr_50                     (o_ddr_50                     ),
+  .o_sdr_104                    (o_sdr_104                    ),
+
+  .o_driver_type_a              (o_driver_type_a              ),
+  .o_driver_type_b              (o_driver_type_b              ),
+  .o_driver_type_c              (o_driver_type_c              ),
+  .o_driver_type_d              (o_driver_type_d              ),
+  .o_enable_async_interrupt     (o_enable_async_interrupt     )
+);
+
 //asynchronous logic
-assign  main_cis_addr   = `MAIN_CIS_START_ADDR;
 
-assign  reg_addr        = i_inc_addr ? (i_address + data_count) : i_address;
-
-assign  o_1_bit_mode    = (bus_width == `D1_BIT_MODE);
-assign  o_4_bit_mode    = (bus_width == `D4_BIT_MODE);
-assign  o_8_bit_mode    = (bus_width == `D8_BIT_MODE);
-
-assign  o_sdr_12        = (bus_speed_select == `SDR12);
-assign  o_sdr_25        = (bus_speed_select == `SDR25);
-assign  o_sdr_50        = (bus_speed_select == `SDR50);
-assign  o_ddr_50        = (bus_speed_select == `DDR50);
-assign  o_sdr_104       = (bus_speed_select == `SDR104);
-
-assign  o_driver_type_a = (driver_type == `DRIVER_TYPE_A);
-assign  o_driver_type_b = (driver_type == `DRIVER_TYPE_B);
-assign  o_driver_type_c = (driver_type == `DRIVER_TYPE_C);
-assign  o_driver_type_d = (driver_type == `DRIVER_TYPE_D);
-
-//Read Only
-assign  cia_map[`CCCR_SDIO_REV_ADDR   ] = {`SDIO_VERSION, `CCCR_FORMAT};
-assign  cia_map[`SD_SPEC_ADDR         ] = {4'h0, `SD_PHY_VERSION};
-assign  cia_map[`IO_FUNC_ENABLE_ADDR  ] = o_func_enable;
-assign  cia_map[`IO_FUNC_READY_ADDR   ] = i_func_ready;
-assign  cia_map[`INT_ENABLE_ADDR      ] = o_func_int_enable;
-assign  cia_map[`INT_PENDING_ADDR     ] = i_func_int_pending;
-assign  cia_map[`IO_ABORT_ADDR        ] = {4'h0, o_soft_reset, abort_sel};
-assign  cia_map[`BUS_IF_CONTROL_ADDR  ] = {o_en_card_detect_n, `SCSI, `ECSI, EN_8BIT_BUS, bus_width};
-assign  cia_map[`CARD_COMPAT_ADDR     ] = {`S4BLS, `LSC, o_en_4bit_block_int, `S4MI, `SBS, `SRW, `SMB, `SDC};
-assign  cia_map[`CARD_CIS_HIGH_ADDR   ] = {6'b000000, main_cis_addr[17:16]};
-assign  cia_map[`CARD_CIS_MID_ADDR    ] = main_cis_addr[15:8];
-assign  cia_map[`CARD_CIS_LOW_ADDR    ] = main_cis_addr[7:0];
-assign  cia_map[`BUS_SUSPEND_ADDR     ] = {6'b000000, o_bus_release_req_stb, i_func_active};
-assign  cia_map[`FUNC_SELECT_ADDR     ] = {i_data_txrx_in_progress_flag, 3'b000, o_func_select};
-assign  cia_map[`EXEC_SELECT_ADDR     ] = {i_func_exec_status};
-assign  cia_map[`READY_SELECT_ADDR    ] = {i_func_ready_for_data};
-assign  cia_map[`FN0_BLOCK_SIZE_0_ADDR] = {o_max_f0_block_size[15:8]};
-assign  cia_map[`FN0_BLOCK_SIZE_1_ADDR] = {o_max_f0_block_size[7:0]};
-assign  cia_map[`POWER_CONTROL_ADDR   ] = {4'h0, `TPC,`EMPC, SMPC};
-assign  cia_map[`BUS_SPD_SELECT_ADDR  ] = {4'h0, bus_speed_select, `SHS};
-assign  cia_map[`UHS_I_SUPPORT_ADDR   ] = {5'h0, `SSDR50, `SSDR104, `SSDR50};
-assign  cia_map[`DRIVE_STRENGTH_ADDR  ] = {2'b00, driver_type, 1'b0, `SDTC, `SDTC, `SDTA};
-assign  cia_map[`INTERRUPT_EXT_ADDR   ] = {6'h00, o_enable_async_interrupt, `SAI};
-
-
-/*
+//Address Multiplexer
 always @ (*) begin
   if (rst || o_soft_rest) begin
-    component_select      <=  `NO_SELECT_INDEX;
+    func_sel      <=  `NO_SELECT_INDEX;
   end
   else begin
-    if      ((func_reg_addr >= `CCCR_FUNCTION_START_ADDR)  && (func_reg_addr <= `CCCR_FUNCTION_END_ADDR )) begin
+    if      ((i_address >= `CCCR_FUNCTION_START_ADDR)  && (i_address <= `CCCR_FUNCTION_END_ADDR )) begin
       //CCCR Selected
-      component_select      <=  `CCCR_INDEX;
+      func_sel      <=  `CCCR_INDEX;
     end
-    else if ((func_reg_addr >= `FUNCTION_1_START_ADDR)     && (func_reg_addr <= `FUNCTION_1_END_ADDR    )) begin
+    else if ((i_address >= `FUNCTION_1_START_ADDR)     && (i_address <= `FUNCTION_1_END_ADDR    )) begin
       //Fuction 1 Sected
-      component_select      <=  `F1_INDEX;
+      func_sel      <=  `F1_INDEX;
     end
-    else if ((func_reg_addr >= `FUNCTION_2_START_ADDR)     && (func_reg_addr <= `FUNCTION_2_END_ADDR    )) begin
+    else if ((i_address >= `FUNCTION_2_START_ADDR)     && (i_address <= `FUNCTION_2_END_ADDR    )) begin
       //Fuction 2 Sected
-      component_select      <=  `F2_INDEX;
+      func_sel      <=  `F2_INDEX;
     end
-    else if ((func_reg_addr >= `FUNCTION_3_START_ADDR)     && (func_reg_addr <= `FUNCTION_3_END_ADDR    )) begin
+    else if ((i_address >= `FUNCTION_3_START_ADDR)     && (i_address <= `FUNCTION_3_END_ADDR    )) begin
       //Fuction 3 Sected
-      component_select      <=  `F3_INDEX;
+      func_sel      <=  `F3_INDEX;
     end
-    else if ((func_reg_addr >= `FUNCTION_4_START_ADDR)     && (func_reg_addr <= `FUNCTION_4_END_ADDR    )) begin
+    else if ((i_address >= `FUNCTION_4_START_ADDR)     && (i_address <= `FUNCTION_4_END_ADDR    )) begin
       //Fuction 4 Sected
-      component_select      <=  `F4_INDEX;
+      func_sel      <=  `F4_INDEX;
     end
-    else if ((func_reg_addr >= `FUNCTION_5_START_ADDR)     && (func_reg_addr <= `FUNCTION_5_END_ADDR    )) begin
+    else if ((i_address >= `FUNCTION_5_START_ADDR)     && (i_address <= `FUNCTION_5_END_ADDR    )) begin
       //Fuction 5 Sected
-      component_select      <=  `F5_INDEX;
+      func_sel      <=  `F5_INDEX;
     end
-    else if ((func_reg_addr >= `FUNCTION_6_START_ADDR)     && (func_reg_addr <= `FUNCTION_6_END_ADDR    )) begin
+    else if ((i_address >= `FUNCTION_6_START_ADDR)     && (i_address <= `FUNCTION_6_END_ADDR    )) begin
       //Fuction 6 Sected
-      component_select      <=  `F6_INDEX;
+      func_sel      <=  `F6_INDEX;
     end
-    else if ((func_reg_addr >= `FUNCTION_7_START_ADDR)     && (func_reg_addr <= `FUNCTION_7_END_ADDR    )) begin
+    else if ((i_address >= `FUNCTION_7_START_ADDR)     && (i_address <= `FUNCTION_7_END_ADDR    )) begin
       //Fuction 7 Sected
-      component_select      <=  `F7_INDEX;
+      func_sel      <=  `F7_INDEX;
     end
-    else if ((func_reg_addr >= `MAIN_CIS_START_ADDR)       && (func_reg_addr <= `MAIN_CIS_END_ADDR      )) begin
+    else if ((i_address >= `MAIN_CIS_START_ADDR)       && (i_address <= `MAIN_CIS_END_ADDR      )) begin
       //Main CIS Region
-      component_select      <=  `MAIN_CIS_INDEX;
+      func_sel      <=  `MAIN_CIS_INDEX;
     end
     else begin
-      component_select      <=  `NO_SELECT_INDEX;
+      func_sel      <=  `NO_SELECT_INDEX;
     end
   end
 end
-*/
 
 
-//synchronous logic
-always @ (posedge sdio_clk) begin
-  //De-assert strobes
-  o_data_stb                <=  0;
-  o_soft_reset              <=  0;
-  o_func_abort_stb           <=  8'h0;
-  abort_sel                 <=  0;
-  o_bus_release_req_stb     <=  0;
-  o_ready                   <=  0;
+//All FPR Channel Specific interfaces are broght ito the multiplexer
+assign  cia_o_finished[`F1_INDEX]         = i_fbr1_ready;
+assign  cia_o_ready[`F1_INDEX]            = i_fbr1_ready;
+assign  cia_o_data_out[`F1_INDEX]         = i_fbr1_data_out; 
+assign  cia_o_data_stb[`F1_INDEX]         = i_fbr1_data_stb;
 
-  if (rst) begin
-    data_count              <=  0;
-    state                   <=  IDLE;
+assign  cia_o_finished[`F2_INDEX]         = i_fbr2_ready;
+assign  cia_o_ready[`F2_INDEX]            = i_fbr2_ready;
+assign  cia_o_data_out[`F2_INDEX]         = i_fbr2_data_out; 
+assign  cia_o_data_stb[`F2_INDEX]         = i_fbr2_data_stb;
 
-    o_func_enable           <=  8'h0; //No functions are enabled
-    o_func_int_enable       <=  8'h0; //No function interrupts are enabled
+assign  cia_o_finished[`F3_INDEX]         = i_fbr3_ready;
+assign  cia_o_ready[`F3_INDEX]            = i_fbr3_ready;
+assign  cia_o_data_out[`F3_INDEX]         = i_fbr3_data_out; 
+assign  cia_o_data_stb[`F3_INDEX]         = i_fbr3_data_stb;
 
-    o_en_4bit_block_int     <=  0;
-    o_en_card_detect_n      <=  0;
-    o_en_4bit_block_int     <=  0;
+assign  cia_o_finished[`F4_INDEX]         = i_fbr4_ready;
+assign  cia_o_ready[`F4_INDEX]            = i_fbr4_ready;
+assign  cia_o_data_out[`F4_INDEX]         = i_fbr4_data_out; 
+assign  cia_o_data_stb[`F4_INDEX]         = i_fbr4_data_stb;
 
-    o_en_4bit_block_int     <=  0;  //Do not enable this in SDR50, SDR104, DDR50 modes
+assign  cia_o_finished[`F5_INDEX]         = i_fbr5_ready;
+assign  cia_o_ready[`F5_INDEX]            = i_fbr5_ready;
+assign  cia_o_data_out[`F5_INDEX]         = i_fbr5_data_out; 
+assign  cia_o_data_stb[`F5_INDEX]         = i_fbr5_data_stb;
 
-    o_func_select           <=  0;
-    o_max_f0_block_size     <=  0;  //Max Block Size is set by host
-    bus_speed_select        <=  0;
-    driver_type             <=  0;
-    o_enable_async_interrupt<=  0;
-    o_ready                 <=  0;
-    o_finished              <=  0;
+assign  cia_o_finished[`F6_INDEX]         = i_fbr6_ready;
+assign  cia_o_ready[`F6_INDEX]            = i_fbr6_ready;
+assign  cia_o_data_out[`F6_INDEX]         = i_fbr6_data_out; 
+assign  cia_o_data_stb[`F6_INDEX]         = i_fbr6_data_stb;
 
-  end
-  else begin
-    o_func_abort_stb[abort_sel]  <=  1;
-
-
-
-    case (state)
-      IDLE: begin
-        data_count          <=  0;
-        o_ready             <=  0;
-        o_finished          <=  0;
-        if (i_activate) begin
-          if (i_write_flag) begin
-            state           <=  WRITE_ACTIVATE;
-          end
-          else begin
-            state           <=  READ_ACTIVATE;
-          end
-        end
-      end
-      WRITE_ACTIVATE: begin
-        //Data From Host Comming into this device
-        if (data_count >= i_data_count):
-          state                           <= FINISHED;
-        end
-        else begin
-          o_ready                         <=  1;
-          if (i_data_stb) begin
-            case (i_address + data_count)
-              `IO_FUNC_ENABLE_ADDR:
-                o_func_enable             <=  i_data;
-              `INT_ENABLE_ADDR:
-                o_func_int_enable         <=  i_data;
-              `IO_ABORT_ADDR: begin
-                o_soft_reset              <=  i_data[3]
-                abort_sel                 <=  i_data[2:0];
-              end
-              `BUS_IF_CONTROL_ADDR:
-                o_en_card_detect_n        <=  i_data[7];
-              `BUS_SUSPEND_ADDR:
-                o_bus_release_req_stb     <=  i_data[1];
-              `FUNC_SELECT_ADDR:
-                o_func_select             <=  i_data[3:0];
-              `FN0_BLOCK_SIZE_0_ADDR:
-                o_max_f0_block_size[15:8] <=  i_data;
-              `FN0_BLOCK_SIZE_1_ADDR:
-                o_max_f0_block_size[7:0]  <=  i_data;
-              `BUS_SPD_SELECT_ADDR:
-                bus_select                <=  i_data[3:1];
-              `DRIVE_STRENGTH_ADDR:
-                driver_type               <=  i_data[6:4];
-              `INTERRUPT_EXT_ADDR:
-                o_enable_async_interrupt  <=  i_data[1];
-
-              default: begin
-              end
-            endcase
-            data_count                    <=  data_count + 1;
-          end
-        end
-      end
-      READ_ACTIVATE: begin
-        if (data_count >= i_data_count) begin
-          state                           <=  FINISHED;
-        end
-        else if (i_ready) begin
-          o_data                          <=  cia_map[i_address + data_count];
-          o_data_stb                      <=  1;
-          data_count                      <=  data_count + 1;
-        end
-      end
-      FINISHED: begin
-        o_finished                        <=  1;
-        if (!i_activate) begin
-          state                           <= IDLE;
-        end
-      end
-      default: begin
-      end
-    endcase
+assign  cia_o_finished[`F7_INDEX]         = i_fbr7_ready;
+assign  cia_o_ready[`F7_INDEX]            = i_fbr7_ready;
+assign  cia_o_data_out[`F7_INDEX]         = i_fbr7_data_out; 
+assign  cia_o_data_stb[`F7_INDEX]         = i_fbr7_data_stb;
 
 
+assign  cia_i_activate[func_sel]          = (func_sel == `CCCR_INDEX)     ? i_activate        : 1'b0;
+assign  cia_i_activate[func_sel]          = (func_sel == `F1_INDEX)       ? i_activate        : 1'b0;
+assign  cia_i_activate[func_sel]          = (func_sel == `F2_INDEX)       ? i_activate        : 1'b0;
+assign  cia_i_activate[func_sel]          = (func_sel == `F3_INDEX)       ? i_activate        : 1'b0;
+assign  cia_i_activate[func_sel]          = (func_sel == `F4_INDEX)       ? i_activate        : 1'b0;
+assign  cia_i_activate[func_sel]          = (func_sel == `F5_INDEX)       ? i_activate        : 1'b0;
+assign  cia_i_activate[func_sel]          = (func_sel == `F7_INDEX)       ? i_activate        : 1'b0;
+assign  cia_i_activate[func_sel]          = (func_sel == `MAIN_CIS_INDEX) ? i_activate        : 1'b0;
 
-  end
-end
+assign  o_ready                           =  cia_o_ready[func_sel];
+assign  o_finished                        =  cia_o_finished[func_sel];
+assign  o_data_out                        =  cia_o_data_out[func_sel];
+assign  o_data_stb                        =  cia_o_data_stb[func_sel];
+
+assign  cia_o_ready   [`NO_SELECT_INDEX]  = 1'b0;
+assign  cia_o_finished[`NO_SELECT_INDEX]  = 1'b1; //Always Done
+assign  cia_o_data_out[`NO_SELECT_INDEX]  = 8'h0;
+assign  cia_o_data_stb[`NO_SELECT_INDEX]  = 1'b0;
+
+assign  o_fbr_select                      = func_sel;
+assign  o_fbr_activate                    = i_activate;
+assign  o_fbr_ready                       = i_ready;
+assign  o_fbr_write_flag                  = i_write_flag;
+assign  o_fbr_address                     = i_address;
+assign  o_fbr_inc_addr                    = i_inc_addr;
+assign  o_fbr_data_stb                    = i_data_stb;
+assign  o_fbr_data_count                  = i_data_count;
+assign  o_fbr_data_in                     = i_data_in;
 
 endmodule

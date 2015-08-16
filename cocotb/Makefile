@@ -14,6 +14,7 @@ EXTRA_ARGS+=-I$(TOPDIR)/rtl/ -I$(TOPDIR)/rtl/cia -I$(NYSA)/verilog/
 #Simulation Devices
 VERILOG_SOURCES += $(TOPDIR)/rtl/generic/crc7.v
 VERILOG_SOURCES += $(TOPDIR)/rtl/generic/crc16.v
+VERILOG_SOURCES += $(TOPDIR)/rtl/cia/sdio_cccr.v
 VERILOG_SOURCES += $(TOPDIR)/rtl/cia/sdio_cia.v
 
 #VERILOG_SOURCES += $(TOPDIR)/rtl/sdio_device_phy_sd_hs.v
